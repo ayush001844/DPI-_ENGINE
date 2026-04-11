@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DPI Engine — Advanced Network Intelligence Dashboard</title>
+    <meta name="description" content="Deep Packet Inspection Engine with real-time traffic analysis, anomaly detection, ML classification, and flow replay.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+<div class="app-layout">
+    <!-- ── Sidebar ──────────────────────────────────────────────────── -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <div class="logo-icon">🛡</div>
+                <div>
+                    <h1>DPI Engine</h1>
+                    <div class="version">v3.0 — Advanced</div>
+                </div>
+            </div>
+        </div>
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Analysis</div>
+                <div class="nav-item active" data-page="dashboard" id="nav-dashboard">
+                    <span class="nav-icon">📊</span> Dashboard
+                </div>
+                <div class="nav-item" data-page="anomalies" id="nav-anomalies">
+                    <span class="nav-icon">🚨</span> Anomaly Detection
+                    <span class="nav-badge hidden" id="anomaly-count">0</span>
+                </div>
+                <div class="nav-item" data-page="flows" id="nav-flows">
+                    <span class="nav-icon">🔄</span> Flow Replay
+                </div>
+                <div class="nav-item" data-page="ml" id="nav-ml">
+                    <span class="nav-icon">🧠</span> ML Classification
+                </div>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Operations</div>
+                <div class="nav-item" data-page="live" id="nav-live">
+                    <span class="nav-icon">📡</span> Live Capture
+                </div>
+                <div class="nav-item" data-page="rules" id="nav-rules">
+                    <span class="nav-icon">🔒</span> Blocking Rules
+                </div>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-title">Import</div>
+                <div class="nav-item" data-page="upload" id="nav-upload">
+                    <span class="nav-icon">📁</span> Upload PCAP
+                </div>
+            </div>
+        </nav>
+    </aside>
+
+    <!-- ── Main Content ────────────────────────────────────────────── -->
+    <main class="main-content">
+
+        <!-- ── Page: Dashboard ──────────────────────────────────────── -->
+        <div class="page active" id="page-dashboard">
+            <div class="page-header">
+                <div>
+                    <h2 class="page-title">Network Intelligence Dashboard</h2>
+                    <p class="page-subtitle" id="analysis-filename">No analysis loaded — Upload a PCAP or use test data</p>
+                </div>
+                <button class="btn btn-primary" id="btn-analyze-test" onclick="analyzeTestPcap()">
+                    ⚡ Analyze Test PCAP
+                </button>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="stats-grid" id="stats-grid">
+                <div class="card stat-card accent-indigo">
+                    <div class="stat-icon">📦</div>
+                    <div class="stat-label">Total Packets</div>
+                    <div class="stat-value" id="stat-packets">—</div>
+                    <div class="stat-sub" id="stat-bytes">—</div>
+                </div>
+                <div class="card stat-card accent-cyan">
+                    <div class="stat-icon">🌐</div>
+                    <div class="stat-label">Active Flows</div>
+                    <div class="stat-value" id="stat-flows">—</div>
+                    <div class="stat-sub" id="stat-snis">—</div>
+                </div>
+                <div class="card stat-card accent-emerald">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-label">Forwarded</div>
+                    <div class="stat-value" id="stat-forwarded">—</div>
+                    <div class="stat-sub">flows passed</div>
+                </div>
+                <div class="card stat-card accent-rose">
+                    <div class="stat-icon">🚫</div>
+                    <div class="stat-label">Blocked</div>
+                    <div class="stat-value" id="stat-blocked">—</div>
+                    <div class="stat-sub" id="stat-dropped">—</div>
+                </div>
+                <div class="card stat-card accent-amber">
+                    <div class="stat-icon">🚨</div>
+                    <div class="stat-label">Anomalies</div>
+                    <div class="stat-value" id="stat-anomalies">—</div>
+                    <div class="stat-sub">detected threats</div>
+                </div>
+                <div class="card stat-card accent-violet">
+                    <div class="stat-icon">⚡</div>
+                    <div class="stat-label">Analysis Time</div>
+                    <div class="stat-value" id="stat-time">—</div>
+                    <div class="stat-sub">milliseconds</div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="charts-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">📈 Traffic Timeline</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="chart-timeline"></canvas>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">🍩 App Distribution</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="chart-apps"></canvas>
+                    </div>
+                    <div class="chart-legend" id="app-legend"></div>
+                </div>
+            </div>
+
+            <!-- Detected SNIs / Top Talkers -->
+            <div class="charts-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">🌐 Detected Domains (SNI)</span>
+                    </div>
+                    <div style="max-height: 300px; overflow-y: auto;">
+                        <table class="data-table" id="sni-table">
+                            <thead><tr><th>Domain</th><th>Application</th></tr></thead>
+                            <tbody id="sni-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">🏆 Top Talkers</span>
+                    </div>
+                    <div style="max-height: 300px; overflow-y: auto;">
+                        <table class="data-table" id="talkers-table">
+                            <thead><tr><th>IP Address</th><th>Bytes</th></tr></thead>
+                            <tbody id="talkers-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Page: Anomaly Detection ──────────────────────────────── -->
+        <div class="page" id="page-anomalies">
+            <div class="page-header">
+                <div>
+                    <h2 class="page-title">🚨 Anomaly Detection</h2>
+                    <p class="page-subtitle">Port scans, DDoS patterns, connection bursts, and flow rate anomalies</p>
+                </div>
+            </div>
+            <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+                <div class="card stat-card accent-rose">
+                    <div class="stat-label">Critical</div>
+                    <div class="stat-value" id="anomaly-critical">0</div>
+                </div>
+                <div class="card stat-card accent-amber">
+                    <div class="stat-label">Warning</div>
+                    <div class="stat-value" id="anomaly-warning">0</div>
+                </div>
+                <div class="card stat-card accent-cyan">
+                    <div class="stat-label">Info</div>
+                    <div class="stat-value" id="anomaly-info">0</div>
+                </div>
+                <div class="card stat-card accent-indigo">
+                    <div class="stat-label">Total</div>
+                    <div class="stat-value" id="anomaly-total">0</div>
+                </div>
+            </div>
+            <div class="card mt-16">
+                <div class="card-header">
+                    <span class="card-title">Alert Feed</span>
+                </div>
+                <div id="anomaly-feed" style="max-height: 600px; overflow-y: auto;">
+                    <p class="text-muted text-center" style="padding: 40px;">Analyze a PCAP file to detect anomalies</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Page: Flow Replay ────────────────────────────────────── -->
+        <div class="page" id="page-flows">
+            <div class="page-header">
+                <div>
+                    <h2 class="page-title">🔄 Flow Replay & Forensics</h2>
+                    <p class="page-subtitle">Reconstruct and investigate individual TCP/UDP flows</p>
+                </div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Flow List</span>
+                    <input type="text" placeholder="🔍 Search flows..." id="flow-search" style="width: 250px;" oninput="filterFlows(this.value)">
+                </div>
+                <div style="max-height: 600px; overflow-y: auto;">
+                    <table class="data-table" id="flow-table">
+                        <thead>
+                            <tr>
+                                <th>Source</th>
+                                <th>Destination</th>
+                                <th>Protocol</th>
+                                <th>Packets</th>
+                                <th>Bytes</th>
+                                <th>Duration</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="flow-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Page: ML Classification ──────────────────────────────── -->
+        <div class="page" id="page-ml">
+            <div class="page-header">
+                <div>
+                    <h2 class="page-title">🧠 ML-Based App Classification</h2>
+                    <p class="page-subtitle">Statistical flow analysis for encrypted traffic identification</p>
+                </div>
+            </div>
+            <div class="stats-grid" style="grid-template-columns: repeat(3, 1fr);">
+                <div class="card stat-card accent-violet">
+                    <div class="stat-label">Total Classified</div>
+                    <div class="stat-value" id="ml-total">0</div>
+                </div>
+                <div class="card stat-card accent-emerald">
+                    <div class="stat-label">Avg Confidence</div>
+                    <div class="stat-value" id="ml-confidence">0%</div>
+                </div>
+                <div class="card stat-card accent-cyan">
+                    <div class="stat-label">ML-Classified</div>
+                    <div class="stat-value" id="ml-heuristic">0</div>
+                </div>
+            </div>
+            <div class="charts-grid mt-16">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Classification Results</span>
+                    </div>
+                    <div style="max-height: 500px; overflow-y: auto;">
+                        <table class="data-table" id="ml-table">
+                            <thead>
+                                <tr>
+                                    <th>Flow</th>
+                                    <th>Classification</th>
+                                    <th>Method</th>
+                                    <th>Confidence</th>
+                                    <th>Features</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ml-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Category Distribution</span>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="chart-ml"></canvas>
+                    </div>
+                    <div class="chart-legend" id="ml-legend"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Page: Live Capture ───────────────────────────────────── -->
+        <div class="page" id="page-live">
+            <div class="page-header">
+                <div>
+                    <h2 class="page-title">📡 Live Capture Simulation</h2>
+                    <p class="page-subtitle">Real-time packet replay with live anomaly detection</p>
+                </div>
+                <div class="flex gap-8">
+                    <button class="btn btn-primary" id="btn-live-start" onclick="startLiveReplay()">▶ Start Replay</button>
+                    <button class="btn btn-danger" id="btn-live-stop" onclick="stopLiveReplay()" disabled>⏹ Stop</button>
+                </div>
+            </div>
+            <div class="stats-grid" style="grid-template-columns: repeat(4, 1fr);">
+                <div class="card stat-card accent-emerald">
+                    <div class="stat-label">Status</div>
+                    <div class="stat-value text-sm" id="live-status">Idle</div>
+                </div>
+                <div class="card stat-card accent-indigo">
+                    <div class="stat-label">Packets Processed</div>
+                    <div class="stat-value" id="live-packets">0</div>
+                </div>
+                <div class="card stat-card accent-cyan">
+                    <div class="stat-label">Bytes</div>
+                    <div class="stat-value" id="live-bytes">0</div>
+                </div>
+                <div class="card stat-card accent-violet">
+                    <div class="stat-label">Progress</div>
+                    <div class="stat-value" id="live-progress">0%</div>
+                </div>
+            </div>
+            <div class="card mt-16">
+                <div class="card-header">
+                    <span class="card-title">Live Packet Feed</span>
+                    <span class="live-indicator hidden" id="live-indicator">
+                        <span class="live-dot"></span> LIVE
+                    </span>
+                </div>
+                <div class="progress-bar mb-16" id="live-progress-bar">
+                    <div class="progress-fill" id="live-progress-fill" style="width: 0%"></div>
+                </div>
+                <div class="packet-feed" id="live-feed">
+                    <p class="text-muted text-center" style="padding: 40px;">
+                        Click "Start Replay" to begin live packet simulation.<br>
+                        <span class="text-sm">Make sure a PCAP file has been analyzed first.</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Page: Blocking Rules ─────────────────────────────────── -->
+        <div class="page" id="page-rules">
+            <div class="page-header">
+                <div>
+                    <h2 class="page-title">🔒 Blocking Rules</h2>
+                    <p class="page-subtitle">Manage IP, application, and domain blocking rules</p>
+                </div>
+            </div>
+            <div class="charts-grid">
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Add Rule</span>
+                    </div>
+                    <div class="flex gap-8 items-center" style="flex-wrap: wrap;">
+                        <select id="rule-type" style="min-width: 120px;">
+                            <option value="ip">IP Address</option>
+                            <option value="app">Application</option>
+                            <option value="domain">Domain</option>
+                        </select>
+                        <input type="text" id="rule-value" placeholder="Enter value..." style="flex: 1; min-width: 200px;">
+                        <button class="btn btn-primary" onclick="addRule()">+ Add Rule</button>
+                    </div>
+                    <div class="mt-16">
+                        <h4 style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 8px;">Active Rules</h4>
+                        <div id="rules-list">
+                            <p class="text-muted text-sm">No rules configured</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Quick Block</span>
+                    </div>
+                    <div class="flex-col gap-8">
+                        <button class="btn btn-secondary btn-sm" onclick="quickBlock('app', 'YouTube')">🚫 Block YouTube</button>
+                        <button class="btn btn-secondary btn-sm" onclick="quickBlock('app', 'TikTok')">🚫 Block TikTok</button>
+                        <button class="btn btn-secondary btn-sm" onclick="quickBlock('app', 'Facebook')">🚫 Block Facebook</button>
+                        <button class="btn btn-secondary btn-sm" onclick="quickBlock('app', 'Instagram')">🚫 Block Instagram</button>
+                        <button class="btn btn-secondary btn-sm" onclick="quickBlock('domain', 'netflix')">🚫 Block Netflix</button>
+                        <button class="btn btn-secondary btn-sm" onclick="quickBlock('ip', '192.168.1.50')">🚫 Block 192.168.1.50</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Page: Upload ─────────────────────────────────────────── -->
+        <div class="page" id="page-upload">
+            <div class="page-header">
+                <div>
+                    <h2 class="page-title">📁 Upload PCAP File</h2>
+                    <p class="page-subtitle">Upload a Wireshark capture file for deep packet analysis</p>
+                </div>
+            </div>
+            <div class="card">
+                <div class="upload-area" id="upload-area" onclick="document.getElementById('file-input').click()">
+                    <div class="upload-icon">📤</div>
+                    <div class="upload-text">Click or drag a PCAP file here</div>
+                    <div class="upload-hint">Supports .pcap files up to 50MB</div>
+                </div>
+                <input type="file" id="file-input" accept=".pcap,.pcapng" style="display: none;" onchange="uploadFile(this.files[0])">
+                <div class="mt-16 text-center hidden" id="upload-progress">
+                    <div class="loading-spinner" style="margin: 0 auto 12px;"></div>
+                    <p class="text-muted">Analyzing packets...</p>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- ── Flow Detail Modal ───────────────────────────────────────────── -->
+<div class="modal-overlay" id="flow-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="flow-modal-title">Flow Detail</h3>
+            <button class="modal-close" onclick="closeFlowModal()">✕</button>
+        </div>
+        <div id="flow-modal-content"></div>
+    </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
