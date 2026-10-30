@@ -894,14 +894,20 @@ g++ -std=c++17 -pthread -O2 -I include -o dpi_engine \
 
 ### Running
 
-**Basic usage:**
+**Offline Mode (PCAP file):**
 ```bash
-./dpi_engine test_dpi.pcap output.pcap
+./dpi_engine -f test_dpi.pcap output.pcap
+```
+
+**Live Capture Mode (Interface):**
+```bash
+sudo ./dpi_engine -i en0 output.pcap
+# Note: Live capture requires root privileges (sudo) and libpcap installed
 ```
 
 **With blocking:**
 ```bash
-./dpi_engine test_dpi.pcap output.pcap \
+./dpi_engine -f test_dpi.pcap output.pcap \
     --block-app YouTube \
     --block-app TikTok \
     --block-ip 192.168.1.50 \
@@ -910,15 +916,19 @@ g++ -std=c++17 -pthread -O2 -I include -o dpi_engine \
 
 **Configure threads (multi-threaded only):**
 ```bash
-./dpi_engine input.pcap output.pcap --lbs 4 --fps 4
+./dpi_engine -f input.pcap output.pcap --lbs 4 --fps 4
 # Creates 4 LB threads × 4 FP threads = 16 processing threads
 ```
 
 ### Creating Test Data
 
 ```bash
+# Generate default 1,500 packets (synced to test_dpi.pcap & backend/data/uploads/)
 python3 generate_test_pcap.py
-# Creates test_dpi.pcap with sample traffic
+
+# Or specify custom packet count (e.g. 1000 to 2000)
+python3 generate_test_pcap.py --count 1500
+python3 generate_test_pcap.py --count 2000
 ```
 
 ---
