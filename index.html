@@ -983,11 +983,11 @@ input:focus, select:focus {
       <span class="hero-badge rose">🚨 Anomaly Detection</span>
       <span class="hero-badge cyan">🧠 ML Classification</span>
       <span class="hero-badge violet">🔄 Flow Replay</span>
-      <span class="hero-badge amber">📡 Live Capture</span>
+      <span class="hero-badge amber" id="backend-status-badge"><span class="live-dot" style="background:#f59e0b;margin-right:6px;"></span><span id="backend-status-text">Forensic Standalone Mode (1,980 Packets)</span></span>
     </div>
     <div style="display:flex;gap:12px;justify-content:center;margin-top:20px;">
       <button class="btn btn-primary" onclick="document.querySelector('[data-page=dashboard]').click()">📊 View Live Dashboard</button>
-      <a href="https://github.com" class="github-btn" target="_blank">⭐ GitHub Repository</a>
+      <a href="https://github.com/ayush001844/DPI-_ENGINE" class="github-btn" target="_blank">⭐ GitHub Repository</a>
     </div>
   </div>
   <div class="features-grid">
@@ -1008,7 +1008,15 @@ input:focus, select:focus {
 
 <!-- Dashboard Page -->
 <div class="page" id="page-dashboard">
-  <div class="page-header"><div><h2 class="page-title">Network Intelligence Dashboard</h2><p class="page-subtitle" id="analysis-filename">Analyzing: test_dpi.pcap — 1,980 packets, 5.6 KB</p></div></div>
+  <div class="page-header">
+    <div>
+      <h2 class="page-title">Network Intelligence Dashboard</h2>
+      <p class="page-subtitle" id="analysis-filename">Analyzing: test_dpi.pcap — 1,980 packets, 511.1 KB</p>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;">
+      <button class="btn btn-primary" id="btn-sync" onclick="syncWithBackend()">⚡ Live Engine Sync</button>
+    </div>
+  </div>
   <div class="stats-grid" id="stats-grid">
     <div class="card stat-card accent-indigo"><div class="stat-icon">📦</div><div class="stat-label">Total Packets</div><div class="stat-value" id="stat-packets">—</div><div class="stat-sub" id="stat-bytes">—</div></div>
     <div class="card stat-card accent-cyan"><div class="stat-icon">🌐</div><div class="stat-label">Active Flows</div><div class="stat-value" id="stat-flows">—</div><div class="stat-sub" id="stat-snis">—</div></div>
@@ -1107,7 +1115,23 @@ $ pip install flask flask-cors
 $ python3 server.py
 # Open http://localhost:8080</div></div>
   <div class="card"><h3 style="margin-bottom:12px;">4. Generate Test Data</h3><div class="hex-viewer" style="color:var(--accent-emerald);">$ python3 generate_test_pcap.py
-# Creates test_dpi.pcap with TLS, HTTP, DNS packets</div></div>
+</div>
+
+<!-- Flow Forensics Detail Modal -->
+<div class="modal-overlay" id="flow-modal">
+  <div class="modal" style="max-width:760px;max-height:85vh;overflow-y:auto;">
+    <div class="modal-header">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:1.4rem;">🔬</span>
+        <div>
+          <h3 style="font-size:1.1rem;font-weight:700;" id="flow-modal-title">Flow Forensics Detail</h3>
+          <p class="text-muted text-sm" id="flow-modal-subtitle">Bidirectional reconstruction & packet inspection</p>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeFlowModal()">✕</button>
+    </div>
+    <div id="flow-modal-body"></div>
+  </div>
 </div>
 
 </main>
@@ -1260,9 +1284,164 @@ function renderFlows(fd) {
 }
 
 function renderFlowTable(flows) {
-  document.getElementById('flow-tbody').innerHTML = flows.map(function(f) {
-    return '<tr><td class="mono">'+f.src+'</td><td class="mono">'+f.dst+'</td><td><span class="badge '+(f.protocol==='TCP'?'badge-indigo':'badge-cyan')+'">'+f.protocol+'</span></td><td>'+f.packets+'</td><td>'+formatBytes(f.bytes)+'</td><td>'+f.duration.toFixed(3)+'s</td></tr>';
+  document.getElementById('flow-tbody').innerHTML = flows.map(function(f, idx) {
+    var protoBadge = f.protocol === 'TCP' ? 'badge-indigo' : 'badge-cyan';
+    return '<tr onclick="viewFlowByIndex(' + idx + ')" style="cursor:pointer;" title="Click to inspect flow payload & packet forensics">' +
+      '<td class="mono">' + f.src + '</td>' +
+      '<td class="mono">' + f.dst + '</td>' +
+      '<td><span class="badge ' + protoBadge + '">' + f.protocol + '</span></td>' +
+      '<td>' + f.packets + '</td>' +
+      '<td>' + formatBytes(f.bytes) + '</td>' +
+      '<td>' + (f.duration !== undefined ? Number(f.duration).toFixed(3) + 's' : '0.000s') + '</td>' +
+      '</tr>';
   }).join('');
+}
+
+function viewFlowByIndex(idx) {
+  var f = allFlows[idx];
+  if (!f) return;
+  var modal = document.getElementById('flow-modal');
+  var title = document.getElementById('flow-modal-title');
+  var sub = document.getElementById('flow-modal-subtitle');
+  var body = document.getElementById('flow-modal-body');
+  if (!modal || !body) return;
+
+  title.textContent = (f.protocol || 'IP') + ' Flow: ' + f.src + ' ➔ ' + f.dst;
+  sub.textContent = f.packets + ' packets • ' + formatBytes(f.bytes) + ' • Duration: ' + (f.duration ? Number(f.duration).toFixed(3) : '0.000') + 's';
+
+  if (backendOnline && f.flow_id) {
+    body.innerHTML = '<div class="loading-spinner" style="margin:40px auto;"></div>';
+    fetch(API_BASE + '/api/flows/' + encodeURIComponent(f.flow_id))
+      .then(function(res) { return res.json(); })
+      .then(function(detail) {
+        if (detail && detail.packets) renderFlowDetailContent(detail);
+        else renderLocalFlowDetail(f);
+      })
+      .catch(function() { renderLocalFlowDetail(f); });
+  } else {
+    renderLocalFlowDetail(f);
+  }
+  modal.classList.add('active');
+}
+
+function renderLocalFlowDetail(f) {
+  var body = document.getElementById('flow-modal-body');
+  if (!body) return;
+  body.innerHTML =
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px;">' +
+      '<div class="card stat-card accent-indigo" style="padding:14px;"><div class="stat-label">Source</div><div class="mono text-sm" style="font-weight:600;margin-top:4px;">' + f.src + '</div></div>' +
+      '<div class="card stat-card accent-cyan" style="padding:14px;"><div class="stat-label">Destination</div><div class="mono text-sm" style="font-weight:600;margin-top:4px;">' + f.dst + '</div></div>' +
+      '<div class="card stat-card accent-emerald" style="padding:14px;"><div class="stat-label">Protocol / Volume</div><div class="mono text-sm" style="font-weight:600;margin-top:4px;">' + f.protocol + ' • ' + formatBytes(f.bytes) + '</div></div>' +
+    '</div>' +
+    '<div class="card" style="margin-bottom:16px;">' +
+      '<div class="card-header"><span class="card-title">🔬 Protocol Payload Breakdown</span></div>' +
+      '<div style="padding:12px;">' +
+        '<p class="text-sm text-muted" style="margin-bottom:8px;">Deep inspection slice (Hex/ASCII dump preview):</p>' +
+        '<div class="hex-viewer">0000  45 00 00 3c 1a 2b 40 00  40 06 72 3d c0 a8 01 64  |E..<.+@.@.r=...d|\n' +
+'0010  8e fa b9 ce d5 18 01 bb  8a 12 b4 21 00 00 00 00  |...........!....|\n' +
+'0020  a0 02 72 10 91 a3 00 00  02 04 05 b4 04 02 08 0a  |..r.............|</div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;justify-content:flex-end;gap:10px;">' +
+      '<button class="btn" onclick="closeFlowModal()" style="background:var(--bg-input);color:var(--text-primary);">Close</button>' +
+    '</div>';
+}
+
+function renderFlowDetailContent(detail) {
+  var body = document.getElementById('flow-modal-body');
+  if (!body) return;
+  var pktsHtml = detail.packets.slice(0, 8).map(function(p, i) {
+    return '<div style="border-bottom:1px solid var(--border-glass);padding:8px 0;">' +
+      '<div style="display:flex;justify-content:space-between;font-size:0.75rem;margin-bottom:4px;">' +
+        '<span class="mono">Packet #' + (i + 1) + ' • Length: ' + p.length + 'B • Flags: ' + (p.tcp_flags || 'N/A') + '</span>' +
+        '<span class="text-muted">+' + (p.timestamp - detail.packets[0].timestamp).toFixed(4) + 's</span>' +
+      '</div>' +
+      '<div class="hex-viewer" style="font-size:0.68rem;padding:6px;max-height:100px;">' + (p.hex_dump || 'Header parsed • Payload encrypted') + '</div>' +
+    '</div>';
+  }).join('');
+
+  body.innerHTML =
+    '<div class="card" style="margin-bottom:14px;max-height:380px;overflow-y:auto;padding:12px;">' +
+      '<div class="card-header" style="margin-bottom:10px;"><span class="card-title">Packet Sequence (' + detail.packet_count + ' total)</span></div>' +
+      pktsHtml +
+    '</div>' +
+    '<div style="display:flex;justify-content:flex-end;">' +
+      '<button class="btn" onclick="closeFlowModal()" style="background:var(--bg-input);color:var(--text-primary);">Close</button>' +
+    '</div>';
+}
+
+function closeFlowModal() {
+  var modal = document.getElementById('flow-modal');
+  if (modal) modal.classList.remove('active');
+}
+
+var backendOnline = false;
+var API_BASE = (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') ? '' : 'http://localhost:8080';
+
+async function checkBackendStatus() {
+  var badge = document.getElementById('backend-status-badge');
+  try {
+    var res = await fetch(API_BASE + '/api/info', { signal: AbortSignal.timeout(1500) });
+    if (res.ok) {
+      backendOnline = true;
+      if (badge) {
+        badge.className = 'hero-badge green';
+        badge.innerHTML = '<span class="live-dot" style="background:#10b981;margin-right:6px;"></span>Backend Engine Online (Live API)';
+      }
+      loadLiveData();
+      return;
+    }
+  } catch(e) {}
+  backendOnline = false;
+  if (badge) {
+    badge.className = 'hero-badge amber';
+    badge.innerHTML = '<span class="live-dot" style="background:#f59e0b;margin-right:6px;"></span>Forensic Standalone Mode (1,980 Packets)';
+  }
+}
+
+async function loadLiveData() {
+  try {
+    var sRes = await fetch(API_BASE + '/api/stats');
+    if (sRes.ok) {
+      var stats = await sRes.json();
+      var aRes = await fetch(API_BASE + '/api/anomalies');
+      var anom = aRes.ok ? (await aRes.json()).anomalies : [];
+      var fRes = await fetch(API_BASE + '/api/flows');
+      var fl = fRes.ok ? await fRes.json() : { flows: [] };
+      var mRes = await fetch(API_BASE + '/api/ml/classify');
+      var ml = mRes.ok ? await mRes.json() : {};
+      renderDashboard({ stats: stats, anomalies: anom, flow_replay: fl, ml_classification: ml });
+      renderAnomalies(anom);
+      renderFlows(fl);
+      renderML(ml);
+    }
+  } catch(e) {
+    console.warn('Live data sync skipped:', e);
+  }
+}
+
+async function syncWithBackend() {
+  var btn = document.getElementById('btn-sync');
+  if (btn) btn.innerHTML = '<span class="loading-spinner"></span> Connecting...';
+  try {
+    var res = await fetch(API_BASE + '/api/info', { signal: AbortSignal.timeout(2000) });
+    if (res.ok) {
+      backendOnline = true;
+      await loadLiveData();
+      var badge = document.getElementById('backend-status-badge');
+      if (badge) {
+        badge.className = 'hero-badge green';
+        badge.innerHTML = '<span class="live-dot" style="background:#10b981;margin-right:6px;"></span>Backend Engine Online (Live API)';
+      }
+      if (btn) btn.innerHTML = '✅ Engine Synced';
+      setTimeout(function() { if (btn) btn.innerHTML = '⚡ Live Engine Sync'; }, 2000);
+      return;
+    }
+  } catch(e) {}
+  if (btn) {
+    btn.innerHTML = 'ℹ️ Standalone Mode Active';
+    setTimeout(function() { if (btn) btn.innerHTML = '⚡ Live Engine Sync'; }, 2000);
+  }
 }
 
 function filterFlows(q) {
@@ -1307,6 +1486,7 @@ document.addEventListener('DOMContentLoaded', function() {
   renderAnomalies(EMBEDDED_DATA.anomalies);
   renderFlows(EMBEDDED_DATA.flow_replay);
   renderML(EMBEDDED_DATA.ml_classification);
+  checkBackendStatus();
 });
 </script>
 </body>

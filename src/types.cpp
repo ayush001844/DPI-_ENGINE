@@ -56,6 +56,18 @@ std::string appTypeToString(AppType type) {
     }
 }
 
+// Helper to match domain or subdomains accurately
+static bool matchHost(const std::string& host, const std::string& domain) {
+    if (host == domain) return true;
+    if (host.length() > domain.length() &&
+        host.compare(host.length() - domain.length(), domain.length(), domain) == 0) {
+        if (host[host.length() - domain.length() - 1] == '.') {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Map SNI/domain to application type
 AppType sniToAppType(const std::string& sni) {
     if (sni.empty()) return AppType::UNKNOWN;
@@ -86,9 +98,9 @@ AppType sniToAppType(const std::string& sni) {
     // Facebook/Meta
     if (lower_sni.find("facebook") != std::string::npos ||
         lower_sni.find("fbcdn") != std::string::npos ||
-        lower_sni.find("fb.com") != std::string::npos ||
+        matchHost(lower_sni, "fb.com") ||
         lower_sni.find("fbsbx") != std::string::npos ||
-        lower_sni.find("meta.com") != std::string::npos) {
+        matchHost(lower_sni, "meta.com")) {
         return AppType::FACEBOOK;
     }
     
@@ -100,15 +112,15 @@ AppType sniToAppType(const std::string& sni) {
     
     // WhatsApp (owned by Meta)
     if (lower_sni.find("whatsapp") != std::string::npos ||
-        lower_sni.find("wa.me") != std::string::npos) {
+        matchHost(lower_sni, "wa.me")) {
         return AppType::WHATSAPP;
     }
     
-    // Twitter/X
+    // Twitter/X (Must use boundary matching so netflix.com and microsoft.com don't match x.com / t.co)
     if (lower_sni.find("twitter") != std::string::npos ||
         lower_sni.find("twimg") != std::string::npos ||
-        lower_sni.find("x.com") != std::string::npos ||
-        lower_sni.find("t.co") != std::string::npos) {
+        matchHost(lower_sni, "x.com") ||
+        matchHost(lower_sni, "t.co")) {
         return AppType::TWITTER;
     }
     
@@ -123,17 +135,17 @@ AppType sniToAppType(const std::string& sni) {
     if (lower_sni.find("amazon") != std::string::npos ||
         lower_sni.find("amazonaws") != std::string::npos ||
         lower_sni.find("cloudfront") != std::string::npos ||
-        lower_sni.find("aws") != std::string::npos) {
+        matchHost(lower_sni, "aws.amazon.com")) {
         return AppType::AMAZON;
     }
     
     // Microsoft
     if (lower_sni.find("microsoft") != std::string::npos ||
-        lower_sni.find("msn.com") != std::string::npos ||
+        matchHost(lower_sni, "msn.com") ||
         lower_sni.find("office") != std::string::npos ||
         lower_sni.find("azure") != std::string::npos ||
-        lower_sni.find("live.com") != std::string::npos ||
-        lower_sni.find("outlook") != std::string::npos ||
+        matchHost(lower_sni, "live.com") ||
+        matchHost(lower_sni, "outlook.com") ||
         lower_sni.find("bing") != std::string::npos) {
         return AppType::MICROSOFT;
     }
@@ -185,7 +197,7 @@ AppType sniToAppType(const std::string& sni) {
     
     // Cloudflare
     if (lower_sni.find("cloudflare") != std::string::npos ||
-        lower_sni.find("cf-") != std::string::npos) {
+        matchHost(lower_sni, "cloudflare.com")) {
         return AppType::CLOUDFLARE;
     }
     

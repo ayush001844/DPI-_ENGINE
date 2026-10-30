@@ -112,6 +112,14 @@ class FlowInfo:
         return max(self.last_seen - self.first_seen, 0.001)
 
     def to_dict(self):
+        avg_iat = 0.0
+        jitter = 0.0
+        if self.inter_arrival_times:
+            avg_iat = sum(self.inter_arrival_times) / len(self.inter_arrival_times)
+            if len(self.inter_arrival_times) > 1:
+                diffs = [abs(self.inter_arrival_times[i] - self.inter_arrival_times[i-1]) 
+                         for i in range(1, len(self.inter_arrival_times))]
+                jitter = sum(diffs) / len(diffs)
         return {
             "flow_key": self.key.to_dict() if self.key else {},
             "app_type": self.app_type,
@@ -123,6 +131,8 @@ class FlowInfo:
             "duration": round(self.duration(), 3),
             "blocked": self.blocked,
             "avg_packet_size": round(self.bytes_total / max(self.packets, 1), 1),
+            "avg_iat_ms": round(avg_iat * 1000.0, 3),
+            "jitter_ms": round(jitter * 1000.0, 3),
         }
 
 
@@ -256,18 +266,19 @@ class PcapAnalyzer:
             flow_id = rev_id
 
         if flow_id not in self.flows:
-            self.flows[flow_id] = FlowInfo(key=fk, first_seen=pkt.timestamp)
+            self.flows[flow_id] = FlowInfo(key=fk, first_seen=pkt.timestamp, last_seen=pkt.timestamp)
 
         flow = self.flows[flow_id]
         flow.packets += 1
         flow.bytes_total += pkt.length
-        flow.last_seen = pkt.timestamp
         flow.packet_sizes.append(pkt.length)
         flow.tcp_flags_seen.append(pkt.tcp_flags)
-
-        if flow.packets > 1 and len(flow.packet_sizes) > 1:
-            iat = pkt.timestamp - flow.last_seen if flow.last_seen > 0 else 0
+        if flow.packets > 1:
+            prev_seen = flow.last_seen
+            iat = (pkt.timestamp - prev_seen) if prev_seen > 0 else 0
             flow.inter_arrival_times.append(max(iat, 0))
+
+        flow.last_seen = pkt.timestamp
 
         # Classify if not done
         if not flow.classified:
@@ -379,11 +390,17 @@ class PcapAnalyzer:
         return None
 
     def _sni_to_app(self, sni: str) -> str:
-        """Map SNI to application name."""
+        """Map SNI to application name with proper boundary checking."""
+        if not sni:
+            return "Unknown"
         lower = sni.lower()
         for pattern, app_name in APP_SIGNATURES.items():
-            if pattern in lower:
-                return app_name
+            if "." in pattern:
+                if lower == pattern or lower.endswith("." + pattern):
+                    return app_name
+            else:
+                if pattern in lower:
+                    return app_name
         return "HTTPS" if sni else "Unknown"
 
     def _check_blocked(self, pkt: PacketInfo, flow: FlowInfo) -> bool:

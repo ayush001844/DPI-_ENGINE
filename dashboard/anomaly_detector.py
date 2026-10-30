@@ -225,8 +225,11 @@ class AnomalyDetector:
 
     def _detect_large_flows(self, flows):
         """Detect unusually large flows."""
-        for flow_id, flow in flows.items():
-            if flow.bytes_total >= self.LARGE_FLOW_BYTES:
+        if not flows:
+            return
+        flow_iter = flows.values() if isinstance(flows, dict) else flows
+        for flow in flow_iter:
+            if getattr(flow, "bytes_total", 0) >= self.LARGE_FLOW_BYTES:
                 self._add_alert(
                     severity="info",
                     category="large_flow",

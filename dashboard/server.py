@@ -9,10 +9,12 @@ import json
 import time
 import threading
 import queue
+import ipaddress
 from pathlib import Path
 
 from flask import Flask, request, jsonify, send_from_directory, Response, send_file
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 
 from pcap_analyzer import PcapAnalyzer
 from anomaly_detector import AnomalyDetector
@@ -21,6 +23,7 @@ from ml_classifier import MLClassifier
 
 # ── App Setup ──────────────────────────────────────────────────────────────
 app = Flask(__name__, static_folder="static", static_url_path="/static")
+app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 MB limit
 CORS(app)
 
 # Project root (parent of dashboard/)
@@ -43,6 +46,23 @@ live_replay_active = False
 
 @app.route("/")
 def index():
+    if request.args.get("view") == "sidebar":
+        return send_from_directory("static", "index.html")
+    if (PROJECT_ROOT / "index.html").exists():
+        return send_file(PROJECT_ROOT / "index.html")
+    return send_from_directory("static", "index.html")
+
+
+@app.route("/soc")
+@app.route("/dashboard")
+def soc_dashboard():
+    if (PROJECT_ROOT / "index.html").exists():
+        return send_file(PROJECT_ROOT / "index.html")
+    return send_from_directory("static", "index.html")
+
+
+@app.route("/sidebar")
+def sidebar_view():
     return send_from_directory("static", "index.html")
 
 
@@ -60,20 +80,27 @@ def analyze_pcap():
 
     filepath = None
 
-    # Check for uploaded file
+    # Check for uploaded file with path traversal protection
     if "file" in request.files:
         f = request.files["file"]
-        if f.filename:
-            filepath = str(UPLOAD_DIR / f.filename)
+        if f and f.filename:
+            safe_name = secure_filename(f.filename)
+            if not safe_name.lower().endswith((".pcap", ".pcapng", ".cap")):
+                return jsonify({"error": "Invalid file extension. Only .pcap, .pcapng, and .cap files are permitted."}), 400
+            filepath = str(UPLOAD_DIR / safe_name)
             f.save(filepath)
 
-    # Or use specified file
+    # Or use specified file from project root or uploads dir
     if not filepath:
         filename = request.form.get("filename", "test_dpi.pcap")
-        filepath = str(PROJECT_ROOT / filename)
+        safe_filename = os.path.basename(filename)
+        candidate = PROJECT_ROOT / safe_filename
+        if not candidate.exists():
+            candidate = UPLOAD_DIR / safe_filename
+        filepath = str(candidate)
 
     if not os.path.exists(filepath):
-        return jsonify({"error": f"File not found: {filepath}"}), 404
+        return jsonify({"error": f"File not found: {os.path.basename(filepath)}"}), 404
 
     try:
         # Run analysis
@@ -181,23 +208,29 @@ def get_rules():
 @app.route("/api/rules", methods=["POST"])
 def add_rule():
     """Add a blocking rule."""
-    data = request.json
+    data = request.json or {}
     rule_type = data.get("type")
-    value = data.get("value", "").strip()
+    value = (data.get("value") or data.get("target") or "").strip()
 
     if not value:
         return jsonify({"error": "Value required"}), 400
 
     if rule_type == "ip":
-        analyzer.blocked_ips.add(value)
+        try:
+            ipaddress.ip_address(value)
+            analyzer.blocked_ips.add(value)
+        except ValueError:
+            return jsonify({"error": f"Invalid IP address format: {value}"}), 400
     elif rule_type == "app":
         analyzer.blocked_apps.add(value)
     elif rule_type == "domain":
-        analyzer.blocked_domains.append(value)
+        clean_dom = value.lower().strip()
+        if clean_dom not in analyzer.blocked_domains:
+            analyzer.blocked_domains.append(clean_dom)
     else:
         return jsonify({"error": "Invalid rule type"}), 400
 
-    return jsonify({"status": "ok", "message": f"Blocked {rule_type}: {value}"})
+    return jsonify({"status": "ok", "message": f"Blocked {rule_type}: {value}"}), 201
 
 
 @app.route("/api/rules", methods=["DELETE"])
@@ -327,6 +360,7 @@ def system_info():
     """Get system information."""
     test_pcap = PROJECT_ROOT / "test_dpi.pcap"
     return jsonify({
+        "status": "ready",
         "version": "3.0",
         "engine": "DPI Engine — Advanced Dashboard",
         "features": [
@@ -354,4 +388,5 @@ if __name__ == "__main__":
     print(f"  Dashboard: http://localhost:8080")
     print("=" * 60 + "\n")
 
-    app.run(host="0.0.0.0", port=8080, debug=True, threaded=True)
+    debug_mode = os.environ.get("FLASK_ENV") != "production" and os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(host="0.0.0.0", port=8080, debug=debug_mode, threaded=True)

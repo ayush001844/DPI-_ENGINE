@@ -9,7 +9,14 @@ using PortableNet::netToHost16;
 using PortableNet::netToHost32;
 
 // Wrapper macros for compatibility
+#ifdef ntohs
+#undef ntohs
+#endif
 #define ntohs(x) netToHost16(x)
+
+#ifdef ntohl
+#undef ntohl
+#endif
 #define ntohl(x) netToHost32(x)
 
 namespace PacketAnalyzer {

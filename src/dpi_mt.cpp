@@ -18,9 +18,11 @@
 #include <optional>
 
 #include "pcap_reader.h"
+#include "live_pcap_reader.h"
 #include "packet_parser.h"
 #include "sni_extractor.h"
 #include "types.h"
+#include <memory>
 
 using namespace PacketAnalyzer;
 using namespace DPI;
@@ -207,6 +209,7 @@ public:
     TSQueue<Packet>& queue() { return input_queue_; }
     
     uint64_t processed() const { return processed_; }
+    int id() const { return id_; }
 
 private:
     int id_;
@@ -322,6 +325,7 @@ public:
     TSQueue<Packet>& queue() { return input_queue_; }
     
     uint64_t dispatched() const { return dispatched_; }
+    int id() const { return id_; }
 
 private:
     int id_;
@@ -338,9 +342,9 @@ private:
             auto pkt_opt = input_queue_.pop(100);
             if (!pkt_opt) continue;
             
-            // Hash to select FP
+            // Hash to select FP (use higher bits to avoid modulo collision with LB selection)
             FiveTupleHash hasher;
-            size_t fp_idx = hasher(pkt_opt->tuple) % num_fps_;
+            size_t fp_idx = (hasher(pkt_opt->tuple) >> 8) % num_fps_;
             
             fps_[fp_idx]->queue().push(std::move(*pkt_opt));
             dispatched_++;
@@ -390,10 +394,8 @@ public:
     void blockApp(const std::string& app) { rules_.blockApp(app); }
     void blockDomain(const std::string& dom) { rules_.blockDomain(dom); }
     
-    bool process(const std::string& input_file, const std::string& output_file) {
-        // Open input
-        PcapReader reader;
-        if (!reader.open(input_file)) return false;
+    bool process(std::unique_ptr<IPacketReader> reader, const std::string& output_file) {
+        if (!reader) return false;
         
         // Open output
         std::ofstream output(output_file, std::ios::binary);
@@ -403,7 +405,7 @@ public:
         }
         
         // Write PCAP header
-        const auto& hdr = reader.getGlobalHeader();
+        const auto& hdr = reader->getGlobalHeader();
         output.write(reinterpret_cast<const char*>(&hdr), sizeof(hdr));
         
         // Start all threads
@@ -434,7 +436,7 @@ public:
         ParsedPacket parsed;
         uint32_t pkt_id = 0;
         
-        while (reader.readNextPacket(raw)) {
+        while (reader->readNextPacket(raw)) {
             if (!PacketParser::parse(raw, parsed)) continue;
             if (!parsed.has_ip || (!parsed.has_tcp && !parsed.has_udp)) continue;
             
@@ -496,7 +498,6 @@ public:
         }
         
         std::cout << "[Reader] Done reading " << pkt_id << " packets\n";
-        reader.close();
         
         // Wait for queues to drain
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
@@ -514,6 +515,7 @@ public:
         // Print report
         printReport();
         
+        std::cout << "[DPI Engine] Finished processing.\n";
         return true;
     }
 
@@ -592,9 +594,12 @@ void printUsage(const char* prog) {
 DPI Engine v2.0 - Multi-threaded Deep Packet Inspection
 ========================================================
 
-Usage: )" << prog << R"( <input.pcap> <output.pcap> [options]
+Usage: )" << prog << R"( -f <input.pcap> <output.pcap> [options]
+       )" << prog << R"( -i <interface> <output.pcap> [options]
 
 Options:
+  -f <pcap>              Read from offline PCAP file
+  -i <iface>             Capture live traffic from interface (requires sudo)
   --block-ip <ip>        Block source IP
   --block-app <app>      Block application (YouTube, Facebook, etc.)
   --block-domain <dom>   Block domain (substring match)
@@ -602,23 +607,25 @@ Options:
   --fps <n>              FP threads per LB (default: 2)
 
 Example:
-  )" << prog << R"( capture.pcap filtered.pcap --block-app YouTube --block-ip 192.168.1.50
+  )" << prog << R"( -f capture.pcap filtered.pcap --block-app YouTube --block-ip 192.168.1.50
+  )" << prog << R"( -i lo0 filtered.pcap --block-app YouTube
 )";
 }
 
 int main(int argc, char* argv[]) {
-    if (argc < 3) {
+    if (argc < 4) {
         printUsage(argv[0]);
         return 1;
     }
     
-    std::string input = argv[1];
-    std::string output = argv[2];
+    std::string mode = argv[1];
+    std::string source = argv[2];
+    std::string output = argv[3];
     
     DPIEngine::Config cfg;
     std::vector<std::string> block_ips, block_apps, block_domains;
     
-    for (int i = 3; i < argc; i++) {
+    for (int i = 4; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--block-ip" && i + 1 < argc) block_ips.push_back(argv[++i]);
         else if (arg == "--block-app" && i + 1 < argc) block_apps.push_back(argv[++i]);
@@ -633,7 +640,22 @@ int main(int argc, char* argv[]) {
     for (const auto& app : block_apps) engine.blockApp(app);
     for (const auto& dom : block_domains) engine.blockDomain(dom);
     
-    if (!engine.process(input, output)) {
+    std::unique_ptr<IPacketReader> reader;
+    
+    if (mode == "-f") {
+        auto pcap_reader = std::make_unique<PcapReader>();
+        if (!pcap_reader->open(source)) return 1;
+        reader = std::move(pcap_reader);
+    } else if (mode == "-i") {
+        auto live_reader = std::make_unique<LivePcapReader>();
+        if (!live_reader->open(source)) return 1;
+        reader = std::move(live_reader);
+    } else {
+        printUsage(argv[0]);
+        return 1;
+    }
+    
+    if (!engine.process(std::move(reader), output)) {
         return 1;
     }
     

@@ -2,7 +2,9 @@
 #include <iomanip>
 #include <ctime>
 #include "pcap_reader.h"
+#include "live_pcap_reader.h"
 #include "packet_parser.h"
+#include <memory>
 
 using namespace PacketAnalyzer;
 
@@ -77,13 +79,16 @@ void printPacketSummary(const ParsedPacket& pkt, int packet_num) {
 }
 
 void printUsage(const char* program_name) {
-    std::cout << "Usage: " << program_name << " <pcap_file> [max_packets]\n";
+    std::cout << "Usage: " << program_name << " -f <pcap_file> [max_packets]\n";
+    std::cout << "       " << program_name << " -i <interface> [max_packets]\n";
     std::cout << "\nArguments:\n";
-    std::cout << "  pcap_file   - Path to a .pcap file captured by Wireshark\n";
-    std::cout << "  max_packets - (Optional) Maximum number of packets to display\n";
+    std::cout << "  -f <pcap_file>  - Path to a .pcap file captured by Wireshark\n";
+    std::cout << "  -i <interface>  - Network interface to capture from (requires sudo)\n";
+    std::cout << "  max_packets     - (Optional) Maximum number of packets to display\n";
     std::cout << "\nExample:\n";
-    std::cout << "  " << program_name << " capture.pcap\n";
-    std::cout << "  " << program_name << " capture.pcap 10\n";
+    std::cout << "  " << program_name << " -f capture.pcap\n";
+    std::cout << "  " << program_name << " -f capture.pcap 10\n";
+    std::cout << "  " << program_name << " -i lo0\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -92,21 +97,35 @@ int main(int argc, char* argv[]) {
     std::cout << "====================================\n\n";
     
     // Check command line arguments
-    if (argc < 2) {
+    if (argc < 3) {
         printUsage(argv[0]);
         return 1;
     }
     
-    std::string filename = argv[1];
+    std::string mode = argv[1];
+    std::string source = argv[2];
     int max_packets = -1;  // -1 means no limit
     
-    if (argc >= 3) {
-        max_packets = std::stoi(argv[2]);
+    if (argc >= 4) {
+        max_packets = std::stoi(argv[3]);
     }
     
-    // Open the PCAP file
-    PcapReader reader;
-    if (!reader.open(filename)) {
+    std::unique_ptr<IPacketReader> reader;
+    
+    if (mode == "-f") {
+        auto pcap_reader = std::make_unique<PcapReader>();
+        if (!pcap_reader->open(source)) {
+            return 1;
+        }
+        reader = std::move(pcap_reader);
+    } else if (mode == "-i") {
+        auto live_reader = std::make_unique<LivePcapReader>();
+        if (!live_reader->open(source)) {
+            return 1;
+        }
+        reader = std::move(live_reader);
+    } else {
+        printUsage(argv[0]);
         return 1;
     }
     
@@ -118,7 +137,7 @@ int main(int argc, char* argv[]) {
     int packet_count = 0;
     int parse_errors = 0;
     
-    while (reader.readNextPacket(raw_packet)) {
+    while (reader->readNextPacket(raw_packet)) {
         packet_count++;
         
         if (PacketParser::parse(raw_packet, parsed_packet)) {
@@ -142,6 +161,5 @@ int main(int argc, char* argv[]) {
     std::cout << "  Parse errors:        " << parse_errors << "\n";
     std::cout << "====================================\n";
     
-    reader.close();
     return 0;
 }
