@@ -36,10 +36,38 @@ analyzer = PcapAnalyzer()
 anomaly_detector = AnomalyDetector()
 flow_replayer = FlowReplayer()
 ml_classifier = MLClassifier()
-
 current_analysis = None
 live_events = queue.Queue(maxsize=500)
 live_replay_active = False
+
+
+def load_default_analysis():
+    """Load and analyze default test_dpi.pcap on startup so all endpoints are populated."""
+    global current_analysis
+    pcap_path = PROJECT_ROOT / "test_dpi.pcap"
+    if pcap_path.exists():
+        try:
+            stats = analyzer.analyze(str(pcap_path))
+            anomalies = anomaly_detector.analyze(analyzer.packets, analyzer.flows)
+            flow_data = flow_replayer.extract_flows(analyzer.packets)
+            ml_classifier.classify_flows(analyzer.flows)
+            ml_summary = ml_classifier.get_summary()
+            current_analysis = {
+                "filename": "test_dpi.pcap",
+                "stats": stats,
+                "anomalies": anomalies,
+                "flow_replay": flow_data,
+                "ml_classification": ml_summary,
+                "timestamp": time.time(),
+            }
+            return current_analysis
+        except Exception as e:
+            print(f"[Server] Failed to load default analysis: {e}", file=sys.stderr)
+    return None
+
+
+# Pre-load default dataset on startup
+load_default_analysis()
 
 
 # ── Static Routes ──────────────────────────────────────────────────────────
@@ -131,9 +159,21 @@ def analyze_pcap():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/analysis")
+def get_full_analysis():
+    """Get complete analysis object (stats, anomalies, flows, ML) in a single request."""
+    if not current_analysis:
+        load_default_analysis()
+    if current_analysis:
+        return jsonify(current_analysis)
+    return jsonify({"error": "No analysis loaded"}), 404
+
+
 @app.route("/api/stats")
 def get_stats():
     """Get current analysis stats."""
+    if not current_analysis:
+        load_default_analysis()
     if current_analysis:
         return jsonify(current_analysis["stats"])
     return jsonify({"error": "No analysis loaded"}), 404
@@ -144,9 +184,14 @@ def get_stats():
 @app.route("/api/anomalies")
 def get_anomalies():
     """Get detected anomalies."""
+    if not current_analysis:
+        load_default_analysis()
     if current_analysis:
-        return jsonify({"anomalies": current_analysis["anomalies"]})
-    return jsonify({"anomalies": []})
+        return jsonify({
+            "anomalies": current_analysis["anomalies"],
+            "total": len(current_analysis["anomalies"])
+        })
+    return jsonify({"anomalies": [], "total": 0})
 
 
 # ── API: Flow Replay ──────────────────────────────────────────────────────
@@ -154,6 +199,8 @@ def get_anomalies():
 @app.route("/api/flows")
 def get_flows():
     """Get flow list for replay."""
+    if not current_analysis:
+        load_default_analysis()
     if current_analysis:
         return jsonify(current_analysis["flow_replay"])
     return jsonify({"flows": [], "total_flows": 0})
@@ -188,9 +235,11 @@ def download_flow_pcap(flow_id):
 @app.route("/api/ml/classify")
 def get_ml_classification():
     """Get ML classification results."""
+    if not current_analysis:
+        load_default_analysis()
     if current_analysis:
         return jsonify(current_analysis["ml_classification"])
-    return jsonify({"total_flows": 0, "classifications": []})
+    return jsonify({"total_flows": 0, "classifications": [], "avg_confidence": 0.0})
 
 
 # ── API: Blocking Rules ───────────────────────────────────────────────────

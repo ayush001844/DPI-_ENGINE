@@ -221,6 +221,44 @@ class TestServerAPIAndSecurity(unittest.TestCase):
         resp_ext = self.client.post("/api/analyze", data={"filename": "exploit.sh"})
         self.assertIn(resp_ext.status_code, [400, 404])
 
+    def test_api_preloaded_endpoints(self):
+        """Verify /api/stats, /api/anomalies, /api/flows, /api/ml/classify are populated at startup."""
+        # /api/stats
+        s_resp = self.client.get("/api/stats")
+        self.assertEqual(s_resp.status_code, 200)
+        s_data = s_resp.get_json()
+        self.assertEqual(s_data["summary"]["total_packets"], 1980)
+
+        # /api/anomalies
+        a_resp = self.client.get("/api/anomalies")
+        self.assertEqual(a_resp.status_code, 200)
+        a_data = a_resp.get_json()
+        self.assertGreater(len(a_data["anomalies"]), 0)
+
+        # /api/flows
+        f_resp = self.client.get("/api/flows")
+        self.assertEqual(f_resp.status_code, 200)
+        f_data = f_resp.get_json()
+        self.assertGreater(len(f_data["flows"]), 0)
+
+        # /api/ml/classify
+        m_resp = self.client.get("/api/ml/classify")
+        self.assertEqual(m_resp.status_code, 200)
+        m_data = m_resp.get_json()
+        self.assertGreater(m_data["total_flows"], 0)
+        self.assertGreater(m_data["avg_confidence"], 0.5)
+
+    def test_api_unified_analysis(self):
+        """Verify unified /api/analysis returns atomic payload with all modules."""
+        resp = self.client.get("/api/analysis")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json()
+        self.assertIn("stats", data)
+        self.assertIn("anomalies", data)
+        self.assertIn("flow_replay", data)
+        self.assertIn("ml_classification", data)
+        self.assertEqual(data["stats"]["summary"]["total_packets"], 1980)
+
 
 class TestCPPEngineBinary(unittest.TestCase):
     """Tests compiled C++ multi-threaded engine binary."""
